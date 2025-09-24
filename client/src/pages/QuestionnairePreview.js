@@ -2,19 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext'; // New import
 import { ArrowUturnLeftIcon } from '@heroicons/react/24/outline';
 
 export default function QuestionnairePreview() {
+  const { currentUser } = useAuth(); // Get current user
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!currentUser) {
+        setLoading(false);
+        setError("You must be logged in to preview a questionnaire.");
+        return;
+      }
       try {
         setLoading(true);
-        const sectionsQuery = query(collection(db, 'sections'), orderBy('order', 'asc'));
-        const questionsQuery = query(collection(db, 'questionnaire'), orderBy('order', 'asc'));
+        const sectionsQuery = query(collection(db, `users/${currentUser.uid}/sections`), orderBy('order', 'asc'));
+        const questionsQuery = query(collection(db, `users/${currentUser.uid}/questionnaire`), orderBy('order', 'asc'));
         
         const [sectionsSnapshot, questionsSnapshot] = await Promise.all([getDocs(sectionsQuery), getDocs(questionsQuery)]);
         
@@ -38,14 +45,14 @@ export default function QuestionnairePreview() {
     };
 
     fetchData();
-  }, []);
+  }, [currentUser]);
 
   const renderQuestion = (q) => {
     const commonProps = {
       id: q.id,
       name: q.id,
       disabled: true,
-      className: "mt-1 block w-full p-3 border border-gray-300 rounded-medium shadow-sm bg-gray-100 cursor-not-allowed"
+      className: "mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm bg-gray-100 cursor-not-allowed"
     };
 
     switch (q.type) {
@@ -57,9 +64,9 @@ export default function QuestionnairePreview() {
       case 'long-text-ai':
         return <textarea rows="4" {...commonProps} />;
       case 'radio':
-        return <div className="mt-2 space-y-2">{q.options.map(opt => <div key={opt.value} className="flex items-center"><input type="radio" name={q.id} value={opt.value} disabled className="h-4 w-4 text-blue-600 border-gray-300 cursor-not-allowed" /><label className="ml-3 text-gray-700">{opt.value}</label></div>)}</div>;
+        return <div className="mt-2 space-y-2">{q.options.map(opt => <div key={opt.value} className="flex items-center"><input type="radio" name={q.id} value={opt.value} disabled className="h-4 w-4" /><label className="ml-3 text-gray-700">{opt.label}</label></div>)}</div>;
       case 'checkbox-group':
-        return <div className="mt-2 space-y-2">{q.options.map(opt => <div key={opt.value} className="flex items-center"><input type="checkbox" name={q.id} value={opt.value} disabled className="h-4 w-4 text-blue-600 border-gray-300 rounded-medium cursor-not-allowed" /><label className="ml-3 text-gray-700">{opt.value}</label></div>)}</div>;
+        return <div className="mt-2 space-y-2">{q.options.map(opt => <div key={opt.value} className="flex items-center"><input type="checkbox" name={q.id} value={opt.value} disabled className="h-4 w-4 rounded" /><label className="ml-3 text-gray-700">{opt.label}</label></div>)}</div>;
       default:
         return <p className="text-red-500">Unknown question type</p>;
     }
@@ -70,14 +77,14 @@ export default function QuestionnairePreview() {
       <div className="sticky top-0 bg-blue-600 text-white shadow-md z-10">
         <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
             <h1 className="text-lg font-bold">Preview Mode</h1>
-            <Link to="/questionnaire" className="bg-white text-blue-600 hover:bg-gray-100 font-bold py-2 px-4 rounded-medium transition-colors duration-200 flex items-center">
+            <Link to="/questionnaire" className="bg-white text-blue-600 hover:bg-gray-100 font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center">
                 <ArrowUturnLeftIcon className="h-5 w-5 mr-2" />
                 Back to Builder
             </Link>
         </div>
       </div>
       <div className="bg-gray-100 min-h-screen py-10">
-        <div className="max-w-4xl mx-auto bg-white p-8 rounded-large shadow-lg">
+        <div className="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg">
           <header className="mb-8 border-b pb-4">
             <h1 className="text-4xl font-bold text-gray-800">Job Application</h1>
             <p className="text-gray-500 mt-2">Please fill out the form below to the best of your ability.</p>
@@ -94,7 +101,7 @@ export default function QuestionnairePreview() {
                   <div className="space-y-6">
                     {section.questions.map(q => (
                       <div key={q.id}>
-                        <label htmlFor={q.id} className="block text-md font-medium text-gray-800">{q.question}</label>
+                        <label htmlFor={q.id} className="block text-md font-medium text-gray-800">{q.question}{q.required && <span className="text-red-500 ml-1">*</span>}</label>
                         {renderQuestion(q)}
                       </div>
                     ))}
@@ -102,7 +109,7 @@ export default function QuestionnairePreview() {
                 </div>
               ))}
               <div className="mt-10 text-center">
-                <button type="submit" disabled className="w-full bg-gray-400 text-white font-bold py-3 px-6 rounded-medium cursor-not-allowed">
+                <button type="submit" disabled className="w-full bg-gray-400 text-white font-bold py-3 px-6 rounded-md cursor-not-allowed">
                   Submission Disabled in Preview
                 </button>
               </div>

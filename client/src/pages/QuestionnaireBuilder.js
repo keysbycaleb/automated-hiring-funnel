@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, doc, writeBatch, query, orderBy, getDocs, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { DragDropContext } from '@hello-pangea/dnd';
+import { useAuth } from '../context/AuthContext'; // ADDED: Import useAuth
 import QuestionModal from '../components/QuestionModal';
 import ConfirmModal from '../components/ConfirmModal';
 import CreateChoiceModal from '../components/CreateChoiceModal';
@@ -13,6 +14,7 @@ import { useReordering } from '../context/ReorderingContext';
 import emptyStateImage from '../assets/empty-state.png';
 
 export default function QuestionnaireBuilder() {
+  const { currentUser } = useAuth(); // ADDED: Get the current user
   const { setIsReordering: setAppReordering } = useReordering();
   const [sections, setSections] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,30 +31,39 @@ export default function QuestionnaireBuilder() {
   const questionsContainerRef = useRef(null);
   const headerRef = useRef(null);
 
+  // ADDED: Helper function for creating user-specific collection paths
+  const getCollectionPath = (col) => `users/${currentUser.uid}/${col}`;
+
   const saveOrder = useCallback(async () => {
-    if (isReordering) {
+    // MODIFIED: Added check for currentUser and uses user-specific paths
+    if (isReordering && currentUser) {
         const batch = writeBatch(db);
         sections.forEach((section, sectionIndex) => {
-            const sectionRef = doc(db, 'sections', section.id);
+            const sectionRef = doc(db, getCollectionPath('sections'), section.id);
             batch.update(sectionRef, { order: sectionIndex });
             section.questions.forEach((question, questionIndex) => {
-                const docRef = doc(db, 'questionnaire', question.id);
+                const docRef = doc(db, getCollectionPath('questionnaire'), question.id);
                 batch.update(docRef, { order: questionIndex, sectionId: section.id });
             });
         });
         await batch.commit();
         setIsReordering(false);
     }
-  }, [isReordering, sections]);
+  }, [isReordering, sections, currentUser]);
 
   useEffect(() => {
     setAppReordering(isReordering);
   }, [isReordering, setAppReordering]);
 
-  const fetchData = async () => {
+  // MODIFIED: Wrapped in useCallback and made user-specific
+  const fetchData = useCallback(async () => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const sectionsQuery = query(collection(db, 'sections'), orderBy('order', 'asc'));
-    const questionsQuery = query(collection(db, 'questionnaire'), orderBy('order', 'asc'));
+    const sectionsQuery = query(collection(db, getCollectionPath('sections')), orderBy('order', 'asc'));
+    const questionsQuery = query(collection(db, getCollectionPath('questionnaire')), orderBy('order', 'asc'));
     
     const [sectionsSnapshot, questionsSnapshot] = await Promise.all([getDocs(sectionsQuery), getDocs(questionsQuery)]);
     
@@ -68,11 +79,11 @@ export default function QuestionnaireBuilder() {
 
     setSections(Array.from(sectionsMap.values()));
     setLoading(false);
-  };
+  }, [currentUser]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const canReorder = sections.length > 1 || sections.flatMap(s => s.questions).length > 1;
 
@@ -161,16 +172,18 @@ export default function QuestionnaireBuilder() {
   };
 
   const handleSaveItem = async (itemData) => {
+    // MODIFIED: Added check for currentUser and uses user-specific paths
+    if (!currentUser) return;
     if (modalContext.type === 'section') {
       if (!itemData.title || itemData.title.trim() === '') {
         showAlert("Title Required", "Section title cannot be empty. Please enter a title to create the section.");
         return; 
       }
       if (editingItem && editingItem.id) {
-        await updateDoc(doc(db, 'sections', editingItem.id), itemData);
+        await updateDoc(doc(db, getCollectionPath('sections'), editingItem.id), itemData);
       } else {
         const newOrder = sections.length;
-        await addDoc(collection(db, 'sections'), { ...itemData, order: newOrder });
+        await addDoc(collection(db, getCollectionPath('sections')), { ...itemData, order: newOrder });
       }
     } else {
       if (!itemData.question || itemData.question.trim() === '') {
@@ -178,9 +191,9 @@ export default function QuestionnaireBuilder() {
         return;
       }
       if (editingItem && editingItem.id) {
-        await updateDoc(doc(db, 'questionnaire', editingItem.id), itemData);
+        await updateDoc(doc(db, getCollectionPath('questionnaire'), editingItem.id), itemData);
       } else {
-        const questionsCollection = collection(db, 'questionnaire');
+        const questionsCollection = collection(db, getCollectionPath('questionnaire'));
         const sectionId = itemData.sectionId || (sections.length > 0 ? sections[0].id : null);
         if (!sectionId) {
             console.error("Cannot create a question without a section.");
@@ -218,17 +231,19 @@ export default function QuestionnaireBuilder() {
   };
 
   const handleDeleteConfirm = async (itemOrId, type) => {
+    // MODIFIED: Added check for currentUser and uses user-specific paths
+    if (!currentUser) return;
     if (type === 'section') {
         const batch = writeBatch(db);
         itemOrId.questions.forEach(q => {
-            const questionDoc = doc(db, 'questionnaire', q.id);
+            const questionDoc = doc(db, getCollectionPath('questionnaire'), q.id);
             batch.delete(questionDoc);
         });
-        const sectionDoc = doc(db, 'sections', itemOrId.id);
+        const sectionDoc = doc(db, getCollectionPath('sections'), itemOrId.id);
         batch.delete(sectionDoc);
         await batch.commit();
     } else {
-        await deleteDoc(doc(db, 'questionnaire', itemOrId));
+        await deleteDoc(doc(db, getCollectionPath('questionnaire'), itemOrId));
     }
     
     await fetchData();

@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { ReorderingProvider } from './context/ReorderingContext';
+import { AuthProvider } from './context/AuthContext';
+import { ProfileProvider } from './context/ProfileContext';
+import ProtectedRoute from './components/ProtectedRoute';
+// OnboardingRoute import is removed
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
@@ -10,28 +14,41 @@ import ApplicantProfile from './pages/ApplicantProfile';
 import QuestionnaireBuilder from './pages/QuestionnaireBuilder';
 import ApplicantForm from './pages/ApplicantForm';
 import QuestionnairePreview from './pages/QuestionnairePreview';
+import Login from './pages/Login';
+import SignUp from './pages/SignUp';
+import Onboarding from './pages/Onboarding';
 
 
 function App() {
-  if (window.location.pathname.startsWith('/apply')) {
-    return (
-      <Router>
-        <Routes>
-          <Route path="/apply/:questionnaireId" element={<ApplicantForm />} />
-        </Routes>
-      </Router>
-    );
-  }
-
   return (
-    <Router>
-      <ReorderingProvider>
-        <AppContent />
-      </ReorderingProvider>
-    </Router>
+    <AuthProvider>
+      <ProfileProvider>
+        <Router>
+          <ReorderingProvider>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<SignUp />} />
+              <Route path="/apply/:userId" element={<ApplicantForm />} />
+
+              {/* Protected routes */}
+              <Route 
+                path="/*" 
+                element={<ProtectedRoute><AppContent /></ProtectedRoute>} 
+              />
+              <Route 
+                path="/onboarding"
+                element={<ProtectedRoute><Onboarding /></ProtectedRoute>}
+              />
+            </Routes>
+          </ReorderingProvider>
+        </Router>
+      </ProfileProvider>
+    </AuthProvider>
   );
 }
 
+// ... AppContent function remains the same
 function AppContent() {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -52,6 +69,7 @@ function AppContent() {
         <Header toggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)} />
         <main className="flex-1">
           <AnimatePresence mode="wait">
+            {/* Nested Routes for the main layout */}
             <Routes location={location} key={location.pathname}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/applicants" element={<AllApplicants />} />
@@ -68,5 +86,6 @@ function AppContent() {
     </div>
   );
 }
+
 
 export default App;
