@@ -312,7 +312,8 @@ export default function QuestionnaireBuilder() {
             <div ref={headerRef} className="flex justify-between items-center mb-8">
                 <h1 className="text-3xl font-bold text-gray-800">Questionnaire Builder</h1>
                 <div className="flex items-center space-x-4">
-                    <Link to={`/form/${currentUser?.uid}`} target="_blank" rel="noopener noreferrer" className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 px-6 rounded-2xl transition-colors duration-200 flex items-center shadow-sm border border-gray-300">
+                    {/* --- UPDATED LINK --- */}
+                    <Link to="/questionnaire/preview" className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 px-6 rounded-2xl transition-colors duration-200 flex items-center shadow-sm border border-gray-300">
                         <EyeIcon className="h-5 w-5 mr-2" />
                         Preview
                     </Link>

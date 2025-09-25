@@ -5,7 +5,7 @@ import { HomeIcon, UsersIcon, DocumentTextIcon, XMarkIcon, ArrowRightOnRectangle
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useScrollDirection } from '../hooks/useScrollDirection';
 import { useAuth } from '../context/AuthContext';
-import { useProfile } from '../context/ProfileContext'; // New import
+import { useProfile } from '../context/ProfileContext';
 
 // --- Animation Variants ---
 const sidebarVariants = {
@@ -50,10 +50,9 @@ export default function Sidebar({ isMobileMenuOpen, onLinkClick, isReordering })
   const isDesktop = useMediaQuery('(min-width: 1024px)');
   const scrollDirection = useScrollDirection();
   const { currentUser, logout } = useAuth();
-  const { profile } = useProfile(); // Get profile data
+  const { profile } = useProfile();
   const navigate = useNavigate();
 
-  // --- Dynamic Branding ---
   const projectName = profile?.companyName || 'Hiring';
   const logoUrl = profile?.logoUrl;
   const firstLetter = projectName ? projectName.charAt(0).toUpperCase() : 'H';
@@ -156,19 +155,18 @@ export default function Sidebar({ isMobileMenuOpen, onLinkClick, isReordering })
         </NavLink>
       </motion.nav>
 
-      {/* User Info and Logout Section */}
       <div className="border-t border-gray-700 shrink-0">
         {currentUser && (
            <div 
              className="flex items-center h-14 px-6 text-gray-400"
              title={currentUser.email}
            >
-            <img 
-              src={`https://ui-avatars.com/api/?name=${currentUser.email.charAt(0)}&background=374151&color=fff&size=24`} 
-              alt="User avatar"
-              className="h-6 w-6 rounded-full shrink-0" 
-            />
-             <motion.span 
+           <img 
+             src={`https://ui-avatars.com/api/?name=${currentUser.email.charAt(0)}&background=374151&color=fff&size=24`} 
+             alt="User avatar"
+             className="h-6 w-6 rounded-full shrink-0" 
+           />
+            <motion.span 
               animate={{ opacity: isExpanded ? 1 : 0 }} 
               className="ml-5 text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis"
             >
