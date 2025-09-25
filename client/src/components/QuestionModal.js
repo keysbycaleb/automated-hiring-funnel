@@ -3,9 +3,11 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 
 export default function QuestionModal({ isOpen, onClose, onSave, item: editingItem, context, sections }) {
   const [question, setQuestion] = useState('');
-  const [type, setType] = useState('text');
+  const [type, setType] = useState('radio'); // Default to Multiple Choice
   const [options, setOptions] = useState([]);
-  const [scoringRubric, setScoringRubric] = useState('');
+  const [scoringRubric, setScoringRubric] = useState([]);
+  const [rubricInput, setRubricInput] = useState('');
+  const [points, setPoints] = useState(10); // State for Long Answer points
   const [sectionId, setSectionId] = useState('');
   const [title, setTitle] = useState('');
 
@@ -15,21 +17,24 @@ export default function QuestionModal({ isOpen, onClose, onSave, item: editingIt
     if (isOpen) {
       if (editingItem) {
         if (isSectionMode) {
-            setTitle(editingItem.title || '');
+          setTitle(editingItem.title || '');
         } else {
-            setQuestion(editingItem.question || '');
-            setType(editingItem.type || 'text');
-            setOptions(editingItem.options || []);
-            setScoringRubric(editingItem.scoringRubric ? editingItem.scoringRubric.join(', ') : '');
-            setSectionId(editingItem.sectionId || '');
+          setQuestion(editingItem.question || '');
+          setType(editingItem.type || 'radio');
+          setOptions(editingItem.options || []);
+          setScoringRubric(Array.isArray(editingItem.scoringRubric) ? editingItem.scoringRubric : []);
+          setPoints(editingItem.points || 10);
+          setSectionId(editingItem.sectionId || '');
         }
       } else {
         // Reset form for new item
         setTitle('');
         setQuestion('');
-        setType('text');
+        setType('radio');
         setOptions([]);
-        setScoringRubric('');
+        setScoringRubric([]);
+        setRubricInput('');
+        setPoints(10);
         setSectionId(context.sectionId || (sections && sections.length > 0 ? sections[0].id : ''));
       }
     }
@@ -44,10 +49,16 @@ export default function QuestionModal({ isOpen, onClose, onSave, item: editingIt
     const questionData = {
       question,
       type,
-      ...( (type === 'radio' || type === 'checkbox-group') && { options }),
-      ...( type === 'long-text-ai' && { scoringRubric: scoringRubric.split(',').map(s => s.trim()).filter(Boolean) }),
       sectionId,
     };
+
+    if (type === 'radio' || type === 'checkbox-group') {
+        questionData.options = options;
+    } else if (type === 'long-text-ai') {
+        questionData.scoringRubric = scoringRubric;
+        questionData.points = points;
+    }
+
     onSave(questionData);
   };
 
@@ -66,6 +77,25 @@ export default function QuestionModal({ isOpen, onClose, onSave, item: editingIt
 
   const removeOption = (index) => {
     setOptions(options.filter((_, i) => i !== index));
+  };
+
+  const handleRubricInputChange = (e) => {
+    setRubricInput(e.target.value.replace(/\s/g, ''));
+  };
+
+  const handleRubricKeyDown = (e) => {
+    if (e.key === 'Enter' && rubricInput.trim() !== '') {
+      e.preventDefault();
+      const newRubric = rubricInput.trim();
+      if (scoringRubric.length < 10 && !scoringRubric.includes(newRubric)) {
+        setScoringRubric([...scoringRubric, newRubric]);
+        setRubricInput('');
+      }
+    }
+  };
+
+  const removeRubricItem = (index) => {
+    setScoringRubric(scoringRubric.filter((_, i) => i !== index));
   };
 
   if (!isOpen) return null;
@@ -116,13 +146,9 @@ export default function QuestionModal({ isOpen, onClose, onSave, item: editingIt
                 <div className="mt-6">
                     <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-2">Question Type</label>
                     <select id="type" value={type} onChange={(e) => setType(e.target.value)} className="w-full p-3 border border-gray-300 rounded-medium bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-                        <option value="text">Short Text</option>
-                        <option value="email">Email</option>
-                        <option value="tel">Phone Number</option>
-                        <option value="long-text">Long Text (Paragraph)</option>
-                        <option value="long-text-ai">Long Text (AI Scored)</option>
-                        <option value="radio">Multiple Choice (Single Answer)</option>
-                        <option value="checkbox-group">Checkboxes (Multiple Answers)</option>
+                        <option value="radio">Multiple Choice</option>
+                        <option value="checkbox-group">Checkboxes</option>
+                        <option value="long-text-ai">Long Answer (AI Scored)</option>
                     </select>
                 </div>
 
@@ -141,11 +167,42 @@ export default function QuestionModal({ isOpen, onClose, onSave, item: editingIt
                 )}
                 
                 {type === 'long-text-ai' && (
-                    <div className="mt-6">
-                        <label htmlFor="scoringRubric" className="block text-sm font-medium text-gray-700 mb-2">AI Scoring Rubric</label>
-                        <p className="text-xs text-gray-500 mb-2">Enter keywords or concepts for the AI to look for, separated by commas (e.g., Teamwork, Problem-Solving, Leadership).</p>
-                        <input id="scoringRubric" type="text" value={scoringRubric} onChange={(e) => setScoringRubric(e.target.value)} className="w-full p-3 border border-gray-300 rounded-medium" />
-                    </div>
+                    <>
+                        <div className="mt-6">
+                            <label htmlFor="points" className="block text-sm font-medium text-gray-700 mb-2">Points</label>
+                            <input
+                                id="points"
+                                type="number"
+                                value={points}
+                                onChange={(e) => setPoints(parseInt(e.target.value, 10))}
+                                className="w-full p-3 border border-gray-300 rounded-medium"
+                                placeholder="e.g., 10"
+                            />
+                        </div>
+                        <div className="mt-6">
+                            <label htmlFor="scoringRubric" className="block text-sm font-medium text-gray-700 mb-2">AI Scoring Rubric</label>
+                            <p className="text-xs text-gray-500 mb-2">Enter a keyword and press "Enter". Max 10 keywords. Spaces are not allowed.</p>
+                            <input
+                                id="scoringRubric"
+                                type="text"
+                                value={rubricInput}
+                                onChange={handleRubricInputChange}
+                                onKeyDown={handleRubricKeyDown}
+                                className="w-full p-3 border border-gray-300 rounded-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                                placeholder={scoringRubric.length < 10 ? "Add a keyword..." : "Maximum keywords reached"}
+                                disabled={scoringRubric.length >= 10}
+                            />
+                            <div className="flex flex-wrap gap-2 mt-3">
+                                {scoringRubric.map((item, index) => (
+                                    <div key={index} className="bg-gray-200 text-gray-800 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center">
+                                        {item}
+                                        <button onClick={() => removeRubricItem(index)} className="ml-2 text-gray-600 hover:text-gray-800 font-bold text-sm leading-none">&times;</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-xs text-gray-500 text-right mt-2">{10 - scoringRubric.length} remaining</p>
+                        </div>
+                    </>
                 )}
             </>
         )}

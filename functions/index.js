@@ -20,111 +20,126 @@ const db = admin.firestore();
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
 // Helper function to call the Gemini API
-async function callGeminiAPI(apiKey, rubric, answer) {
+async function callGeminiAPI(apiKey, rubric, answer, points) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
-    const prompt = `You are an expert hiring assistant for a fast-paced restaurant environment. Your task is to analyze a job applicant's response to a behavioral question and score them on a scale of 0 to 10 for a specific set of traits. Provide your response ONLY in a valid JSON format, with the scores contained within a "trait_scores" object.
+    const prompt = `You are an expert hiring assistant. Your task is to analyze a job applicant's response to a behavioral question.
+    This question is worth a total of ${points} points.
 
     The applicant's answer is:
     "${answer}"
 
-    Analyze the text above and provide a JSON object with scores for the following traits:
-    - ${rubric.join("\n- ")}
+    Analyze the text above and provide a JSON object with two keys: "trait_scores" and "analysis".
+    - The "trait_scores" object should contain a score for each of the following traits, where each score is between 0 and ${points}:
+        - ${rubric.join("\n- ")}
+    - The "analysis" object should contain a brief, one-sentence justification for each of the trait scores, using the trait name as the key.
+
+    Provide your response ONLY in a valid JSON format.
     `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text().replace(/```json|```/g, "").trim();
     
-    functions.logger.info("Gemini response received:", {responseText: text});
+    functions.logger.info("Gemini response received:", { responseText: text });
     return JSON.parse(text);
   } catch (error) {
-    functions.logger.error("Error calling Gemini API:", {error: error.toString(), answer: answer});
+    functions.logger.error("Error calling Gemini API:", { error: error.toString(), answer: answer });
     return null;
   }
 }
 
 exports.processNewApplicant = onDocumentCreated(
   {
-    document: "applicants/{applicantId}",
+    document: "users/{userId}/applicants/{applicantId}",
     secrets: [GEMINI_API_KEY], // Make the secret available
   },
   async (event) => {
-    const applicantId = event.params.applicantId;
+    const { userId, applicantId } = event.params;
     const applicantData = event.data.data();
+    const applicantAnswers = applicantData.answers || {};
 
-    // 1. Fetch the Scoring Rubric
-    const questionnaireSnapshot = await db.collection("questionnaire").get();
-    const scoringRubric = {};
-    questionnaireSnapshot.forEach((doc) => {
-      scoringRubric[doc.id] = doc.data();
+    // 1. Fetch all questions for the user to create a comprehensive rubric
+    const questionsSnapshot = await db.collection(`users/${userId}/questionnaire`).get();
+    if (questionsSnapshot.empty) {
+        functions.logger.error(`No questionnaire found for user ${userId}.`);
+        return;
+    }
+    const allQuestions = {};
+    questionsSnapshot.forEach((doc) => {
+        allQuestions[doc.id] = doc.data();
     });
+    
 
-    // 2. Dynamic Scoring Engine
+    // 2. Extract Contact Info and Score Questions
     let manualScore = 0;
     const aiAnalysis = {};
-    const applicantAnswers = applicantData.answers;
+    const contactInfo = {};
 
     for (const questionId in applicantAnswers) {
-      const question = scoringRubric[questionId];
+      const question = allQuestions[questionId];
       const answer = applicantAnswers[questionId];
       if (!question) continue;
 
-      if (question.type === "checkbox-group" || question.type === "radio") {
+      // Handle Contact Info by looking at the question text
+      if (question.type === "short-text") {
+        const lowerCaseQuestion = question.question.toLowerCase();
+        if (lowerCaseQuestion.includes("name")) contactInfo.name = answer;
+        if (lowerCaseQuestion.includes("email")) contactInfo.email = answer;
+        if (lowerCaseQuestion.includes("phone")) contactInfo.phone = answer;
+        continue; // Don't score contact questions
+      }
+
+      // Handle Scored Questions
+      if (question.type === "checkbox-group") {
         for (const optionValue in answer) {
           if (answer[optionValue]) {
             const matchedOption = question.options.find((opt) => opt.value === optionValue);
-            if (matchedOption && matchedOption.points) {
-              manualScore += matchedOption.points;
-            }
+            if (matchedOption && matchedOption.points) manualScore += matchedOption.points;
           }
         }
+      } else if (question.type === "radio") {
+        const matchedOption = question.options.find((opt) => opt.value === answer);
+        if (matchedOption && matchedOption.points) manualScore += matchedOption.points;
       } else if (question.type === "long-text-ai" && answer) {
         functions.logger.info(`Processing AI question ${questionId} for applicant ${applicantId}`);
-        const aiScores = await callGeminiAPI(GEMINI_API_KEY.value(), question.scoringRubric, answer);
-        
-        if (aiScores) {
-          aiAnalysis[questionId] = aiScores.trait_scores || aiScores;
+        const aiScoresAndAnalysis = await callGeminiAPI(GEMINI_API_KEY.value(), question.scoringRubric, answer, question.points);
+        if (aiScoresAndAnalysis) {
+          aiAnalysis[questionId] = aiScoresAndAnalysis;
         }
       }
     }
 
-    // 3. Tally Final Score with Averaging
+    // 3. Tally Final Score
     let totalAiScore = 0;
     for (const qid in aiAnalysis) {
-      const traits = aiAnalysis[qid];
-      const traitScores = Object.values(traits); // Get an array of the scores, e.g., [9, 10, 8]
-      
-      if (traitScores.length > 0) {
-        // Calculate the sum of the scores
-        const sumOfTraitScores = traitScores.reduce((acc, score) => acc + (score || 0), 0);
-        // Calculate the average and add it to the total
-        const averageScore = sumOfTraitScores / traitScores.length;
-        totalAiScore += averageScore;
+      const questionAnalysis = aiAnalysis[qid];
+      if (questionAnalysis && questionAnalysis.trait_scores) {
+        const traitScores = Object.values(questionAnalysis.trait_scores);
+        if (traitScores.length > 0) {
+          const sumOfTraitScores = traitScores.reduce((acc, score) => acc + (Number(score) || 0), 0);
+          totalAiScore += sumOfTraitScores / traitScores.length;
+        }
       }
     }
-    // Round the final AI score to avoid long decimal places
     const totalScore = manualScore + Math.round(totalAiScore);
 
     // 4. Decision Logic
-    const scoreThreshold = 75;
-    let status = "";
-    if (totalScore >= scoreThreshold) {
-      status = "Interview Scheduled";
-    } else {
-      status = "Pending Manual Review";
-    }
+    const userProfileDoc = await db.collection("users").doc(userId).get();
+    const scoreThreshold = userProfileDoc.data()?.scoreThreshold || 75;
+    const status = totalScore >= scoreThreshold ? "Interview" : "Review";
 
-    // 5. Update Firestore
-    functions.logger.log(`Updating applicant ${applicantId} with final score: ${totalScore} (Manual: ${manualScore}, AI Avg: ${totalAiScore.toFixed(2)}) and status: ${status}`);
-    return db.collection("applicants").doc(applicantId).update({
+    // 5. Update Firestore with all data
+    functions.logger.log(`Updating applicant ${applicantId} with final score: ${totalScore} and status: ${status}`);
+    return db.collection(`users/${userId}/applicants`).doc(applicantId).update({
       score: totalScore,
       manualScore: manualScore,
-      aiAnalysis: aiAnalysis, // Storing the detailed breakdown
+      aiAnalysis: aiAnalysis,
       status: status,
       processedAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...contactInfo, // Add name, email, phone to the applicant document
     });
   },
 );

@@ -1,19 +1,22 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { 
-  onAuthStateChanged, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut 
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut
 } from 'firebase/auth';
-import { auth } from '../firebase'; // Correctly import auth directly
+import { auth } from '../firebase'; // Ensure auth is imported from your firebase config
 
+// 1. Create the context
 const AuthContext = React.createContext();
 
+// 2. Create a custom hook for easy consumption of the context
 export function useAuth() {
   return useContext(AuthContext);
 }
 
-export function AuthProvider({ children }) {
+// 3. Create the Provider component
+function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,10 +35,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, user => {
       setCurrentUser(user);
-      setLoading(false);
+      setLoading(false); // Set loading to false once user status is determined
     });
 
-    return unsubscribe;
+    return unsubscribe; // Cleanup subscription on unmount
   }, []);
 
   const value = {
@@ -51,3 +54,6 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
+// 4. Export the Provider as the default export
+export default AuthProvider;

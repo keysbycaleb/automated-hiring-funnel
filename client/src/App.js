@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { ReorderingProvider } from './context/ReorderingContext';
-import { AuthProvider } from './context/AuthContext';
+import AuthProvider from './context/AuthContext'; // UPDATED: Changed to a default import
 import { ProfileProvider } from './context/ProfileContext';
 import ProtectedRoute from './components/ProtectedRoute';
-// OnboardingRoute import is removed
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
@@ -32,11 +31,11 @@ function App() {
               <Route path="/apply/:userId" element={<ApplicantForm />} />
 
               {/* Protected routes */}
-              <Route 
-                path="/*" 
-                element={<ProtectedRoute><AppContent /></ProtectedRoute>} 
+              <Route
+                path="/*"
+                element={<ProtectedRoute><AppContent /></ProtectedRoute>}
               />
-              <Route 
+              <Route
                 path="/onboarding"
                 element={<ProtectedRoute><Onboarding /></ProtectedRoute>}
               />
@@ -61,8 +60,8 @@ function AppContent() {
 
   return (
     <div className="flex bg-gray-100 min-h-screen">
-      <Sidebar 
-        isMobileMenuOpen={isMobileMenuOpen} 
+      <Sidebar
+        isMobileMenuOpen={isMobileMenuOpen}
         onLinkClick={handleLinkClick}
       />
       <div className="flex-1 flex flex-col">
@@ -74,9 +73,9 @@ function AppContent() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/applicants" element={<AllApplicants />} />
               <Route path="/applicant/:id" element={<ApplicantProfile />} />
-              <Route 
-                path="/questionnaire" 
-                element={<QuestionnaireBuilder />} 
+              <Route
+                path="/questionnaire"
+                element={<QuestionnaireBuilder />}
               />
               <Route path="/questionnaire/preview" element={<QuestionnairePreview />} />
             </Routes>
