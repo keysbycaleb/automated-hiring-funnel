@@ -9,7 +9,8 @@ import ConfirmModal from '../components/ConfirmModal';
 import CreateChoiceModal from '../components/CreateChoiceModal';
 import AlertModal from '../components/AlertModal';
 import Section from '../components/Section';
-import { PencilIcon, ChevronDownIcon, RectangleGroupIcon, DocumentPlusIcon, EyeIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import TemplateBrowser from '../components/TemplateBrowser'; // Import the new component
+import { PencilIcon, ChevronDownIcon, RectangleGroupIcon, DocumentPlusIcon, EyeIcon, UserPlusIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import { useReordering } from '../context/ReorderingContext';
 import emptyStateImage from '../assets/empty-state.png';
 
@@ -19,6 +20,7 @@ export default function QuestionnaireBuilder() {
     const [sections, setSections] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
+    const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false); // New state
     const [editingItem, setEditingItem] = useState(null);
     const [modalContext, setModalContext] = useState({});
     const [loading, setLoading] = useState(true);
@@ -32,6 +34,43 @@ export default function QuestionnaireBuilder() {
     const headerRef = useRef(null);
 
     const getCollectionPath = (col) => `users/${currentUser.uid}/${col}`;
+
+    // --- NEW: Function to import a template ---
+    const handleSelectTemplate = async (templateId) => {
+        if (!currentUser || !templateId) return;
+        setIsTemplateBrowserOpen(false);
+        setLoading(true);
+
+        try {
+            const batch = writeBatch(db);
+            const templateSectionsRef = collection(db, `questionTemplates/${templateId}/sections`);
+            const templateSectionsSnap = await getDocs(query(templateSectionsRef, orderBy('order')));
+
+            for (const sectionDoc of templateSectionsSnap.docs) {
+                const sectionData = sectionDoc.data();
+                const newSectionRef = doc(collection(db, getCollectionPath('sections')));
+                batch.set(newSectionRef, { title: sectionData.title, order: sectionData.order });
+
+                const templateQuestionsRef = collection(sectionDoc.ref, 'questions');
+                const templateQuestionsSnap = await getDocs(query(templateQuestionsRef, orderBy('order')));
+                
+                templateQuestionsSnap.forEach(questionDoc => {
+                    const questionData = questionDoc.data();
+                    const newQuestionRef = doc(collection(db, getCollectionPath('questionnaire')));
+                    batch.set(newQuestionRef, { ...questionData, sectionId: newSectionRef.id });
+                });
+            }
+
+            await batch.commit();
+            await fetchData(); // Refresh the data to show the new questionnaire
+        } catch (error) {
+            console.error("Error importing template:", error);
+            showAlert("Import Error", "There was an error importing the selected template.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
 
     const saveOrder = useCallback(async () => {
         if (isReordering && currentUser) {
@@ -149,7 +188,7 @@ export default function QuestionnaireBuilder() {
         };
 
         const handleKeyDown = (event) => {
-            if (isModalOpen || confirmModalState.isOpen || isChoiceModalOpen || alertModalState.isOpen || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
+            if (isModalOpen || confirmModalState.isOpen || isChoiceModalOpen || alertModalState.isOpen || isTemplateBrowserOpen || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
                 return;
             }
             if (event.key === 'r' && canReorder && !isReordering) {
@@ -174,7 +213,7 @@ export default function QuestionnaireBuilder() {
             document.removeEventListener("keydown", handleKeyDown);
             document.body.classList.remove('select-none');
         };
-    }, [isReordering, isModalOpen, confirmModalState.isOpen, isChoiceModalOpen, alertModalState.isOpen, sections, canReorder, saveOrder]);
+    }, [isReordering, isModalOpen, confirmModalState.isOpen, isChoiceModalOpen, alertModalState.isOpen, sections, canReorder, saveOrder, isTemplateBrowserOpen]);
 
     const handleOpenModal = async (item = null, context = {}) => {
         if (isReordering) {
@@ -312,7 +351,6 @@ export default function QuestionnaireBuilder() {
             <div ref={headerRef} className="flex justify-between items-center mb-8">
                 <h1 className="text-3xl font-bold text-gray-800">Questionnaire Builder</h1>
                 <div className="flex items-center space-x-4">
-                    {/* --- UPDATED LINK --- */}
                     <Link to="/questionnaire/preview" className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 px-6 rounded-2xl transition-colors duration-200 flex items-center shadow-sm border border-gray-300">
                         <EyeIcon className="h-5 w-5 mr-2" />
                         Preview
@@ -382,19 +420,30 @@ export default function QuestionnaireBuilder() {
             {loading ? (
                 <p>Loading...</p>
             ) : sections.length === 0 ? (
+                // --- UPDATED EMPTY STATE ---
                 <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 250px)' }}>
                     <div className="text-center p-10 bg-white rounded-[25px] shadow-lg border border-gray-200 w-full max-w-3xl">
                         <img src={emptyStateImage} alt="Empty questionnaire" className="mx-auto mb-8 h-48" />
-                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Looks like there's nothing here.</h2>
+                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Your questionnaire is empty.</h2>
                         <p className="text-gray-600 mb-6">
+                            Create your first section or get started even faster with a template.
+                        </p>
+                        <div className="flex justify-center space-x-4">
                             <button
                                 onClick={() => handleOpenModal(null, { type: 'section' })}
-                                className="text-blue-600 hover:underline font-semibold"
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center"
                             >
-                                Click here
+                                <RectangleGroupIcon className="h-5 w-5 mr-2" />
+                                Create a Section
                             </button>
-                            {' '}to create your first section.
-                        </p>
+                            <button
+                                onClick={() => setIsTemplateBrowserOpen(true)}
+                                className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-lg transition-colors flex items-center"
+                            >
+                                <BookOpenIcon className="h-5 w-5 mr-2" />
+                                Start from a Template
+                            </button>
+                        </div>
                     </div>
                 </div>
             ) : (
@@ -416,6 +465,12 @@ export default function QuestionnaireBuilder() {
                     </DragDropContext>
                 </div>
             )}
+
+            <TemplateBrowser
+                isOpen={isTemplateBrowserOpen}
+                onClose={() => setIsTemplateBrowserOpen(false)}
+                onSelectTemplate={handleSelectTemplate}
+            />
 
             <CreateChoiceModal
                 isOpen={isChoiceModalOpen}

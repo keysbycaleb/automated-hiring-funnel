@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/solid'; // Import a new icon
 
 export default function ApplicantProfile() {
     const { id } = useParams();
@@ -74,6 +75,23 @@ export default function ApplicantProfile() {
                         <span className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(applicant.status)}`}>
                             Status: {applicant.status || 'N/A'}
                         </span>
+                        
+                        {/* --- ADDED THIS BLOCK FOR THE RESUME BUTTON --- */}
+                        {applicant.resumeUrl && (
+                            <div className="mt-4">
+                                <a
+                                    href={applicant.resumeUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                                >
+                                    <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                                    Download Resume
+                                </a>
+                            </div>
+                        )}
+                        {/* --- END OF ADDED BLOCK --- */}
+
                     </div>
                     <div className="text-right">
                         <p className="text-gray-500 text-lg">Overall Score</p>
@@ -92,7 +110,6 @@ export default function ApplicantProfile() {
                                 <p className="text-gray-600 mb-4 italic p-3 bg-gray-50 rounded-lg">"{applicant.answers[questionId]}"</p>
                                 
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
-                                    {/* Left Column: Justification */}
                                     <div className="space-y-2 text-sm">
                                         <h4 className="font-semibold text-lg text-gray-700 mb-2">Justification</h4>
                                         {analysis.analysis && Object.entries(analysis.analysis).map(([trait, justification]) => (
@@ -102,7 +119,6 @@ export default function ApplicantProfile() {
                                             </div>
                                         ))}
                                     </div>
-                                    {/* Right Column: Scores */}
                                     <div className="mt-6 lg:mt-0">
                                         <h4 className="font-semibold text-lg text-gray-700 mb-2">Trait Scores</h4>
                                         <ul className="space-y-2">
