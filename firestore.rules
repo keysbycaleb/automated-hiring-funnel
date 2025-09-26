@@ -19,7 +19,11 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
+      // THIS IS THE CHANGED SECTION
+      // Allow a user to create their own document
+      allow create: if request.auth.uid == userId;
+      // Allow a user to read or update their own document after it exists
+      allow read, update: if request.auth.uid == userId;
 
       match /sections/{sectionId} {
         allow read, write: if request.auth.uid == userId;

@@ -172,7 +172,7 @@ function Step1({ companyName, updateFields }) {
 
 function Step2({ previewUrl, updateFields }) {
   const handleFileChange = (e) => {
-    const file = e.g. files[0];
+    const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onloadend = () => {
