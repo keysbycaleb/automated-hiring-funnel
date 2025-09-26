@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../firebase';
-import { collection, doc, writeBatch, query, orderBy, getDocs, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, orderBy, getDocs, addDoc, updateDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 import { DragDropContext } from '@hello-pangea/dnd';
 import { useAuth } from '../context/AuthContext';
 import QuestionModal from '../components/QuestionModal';
@@ -9,7 +9,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import CreateChoiceModal from '../components/CreateChoiceModal';
 import AlertModal from '../components/AlertModal';
 import Section from '../components/Section';
-import TemplateBrowser from '../components/TemplateBrowser'; // Import the new component
+import TemplateBrowser from '../components/TemplateBrowser';
 import { PencilIcon, ChevronDownIcon, RectangleGroupIcon, DocumentPlusIcon, EyeIcon, UserPlusIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import { useReordering } from '../context/ReorderingContext';
 import emptyStateImage from '../assets/empty-state.png';
@@ -18,9 +18,10 @@ export default function QuestionnaireBuilder() {
     const { currentUser } = useAuth();
     const { setIsReordering: setAppReordering } = useReordering();
     const [sections, setSections] = useState([]);
+    const [pointsThreshold, setPointsThreshold] = useState(0); // New state for threshold
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
-    const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false); // New state
+    const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
     const [modalContext, setModalContext] = useState({});
     const [loading, setLoading] = useState(true);
@@ -35,7 +36,6 @@ export default function QuestionnaireBuilder() {
 
     const getCollectionPath = (col) => `users/${currentUser.uid}/${col}`;
 
-    // --- NEW: Function to import a template ---
     const handleSelectTemplate = async (templateId) => {
         if (!currentUser || !templateId) return;
         setIsTemplateBrowserOpen(false);
@@ -62,7 +62,7 @@ export default function QuestionnaireBuilder() {
             }
 
             await batch.commit();
-            await fetchData(); // Refresh the data to show the new questionnaire
+            await fetchData();
         } catch (error) {
             console.error("Error importing template:", error);
             showAlert("Import Error", "There was an error importing the selected template.");
@@ -88,6 +88,19 @@ export default function QuestionnaireBuilder() {
         }
     }, [isReordering, sections, currentUser]);
 
+    // --- NEW: Save threshold whenever it changes ---
+    const handleThresholdChange = (e) => {
+        const value = e.target.value === '' ? '' : Number(e.target.value);
+        setPointsThreshold(value);
+    };
+
+    const saveThreshold = useCallback(async () => {
+        if (currentUser && pointsThreshold !== '') {
+            const settingsRef = doc(db, getCollectionPath('questionnaireSettings'), 'main');
+            await setDoc(settingsRef, { pointsThreshold }, { merge: true });
+        }
+    }, [currentUser, pointsThreshold]);
+
     useEffect(() => {
         setAppReordering(isReordering);
     }, [isReordering, setAppReordering]);
@@ -100,8 +113,17 @@ export default function QuestionnaireBuilder() {
         setLoading(true);
         const sectionsQuery = query(collection(db, getCollectionPath('sections')), orderBy('order', 'asc'));
         const questionsQuery = query(collection(db, getCollectionPath('questionnaire')), orderBy('order', 'asc'));
-
-        const [sectionsSnapshot, questionsSnapshot] = await Promise.all([getDocs(sectionsQuery), getDocs(questionsQuery)]);
+        const settingsDoc = doc(db, getCollectionPath('questionnaireSettings'), 'main');
+        
+        const [sectionsSnapshot, questionsSnapshot, settingsSnapshot] = await Promise.all([
+            getDocs(sectionsQuery), 
+            getDocs(questionsQuery),
+            getDoc(settingsDoc)
+        ]);
+        
+        if (settingsSnapshot.exists()) {
+            setPointsThreshold(settingsSnapshot.data().pointsThreshold || 0);
+        }
 
         const sectionsData = sectionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), questions: [] }));
         const questionsData = questionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -416,11 +438,30 @@ export default function QuestionnaireBuilder() {
                     <p>You have used {aiQuestionCount} of your 10 available AI-scored questions. You have {10 - aiQuestionCount} remaining.</p>
                 </div>
             )}
+             {/* --- NEW: Points Threshold Input --- */}
+            { !loading && sections.length > 0 && (
+                <div className="mb-8 p-6 bg-white rounded-2xl shadow-sm border border-gray-200">
+                    <label htmlFor="pointsThreshold" className="block text-lg font-bold text-gray-800">
+                        Interview Score Threshold
+                    </label>
+                    <p className="text-sm text-gray-500 mt-1 mb-3">
+                        Applicants who score at or above this number will be prompted to schedule an interview automatically.
+                    </p>
+                    <input
+                        type="number"
+                        id="pointsThreshold"
+                        value={pointsThreshold}
+                        onChange={handleThresholdChange}
+                        onBlur={saveThreshold} // Save when the user clicks away
+                        className="mt-1 block w-full max-w-xs px-4 py-3 text-lg border border-gray-300 rounded-lg shadow-sm"
+                        placeholder="e.g., 75"
+                    />
+                </div>
+            )}
 
             {loading ? (
                 <p>Loading...</p>
             ) : sections.length === 0 ? (
-                // --- UPDATED EMPTY STATE ---
                 <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 250px)' }}>
                     <div className="text-center p-10 bg-white rounded-[25px] shadow-lg border border-gray-200 w-full max-w-3xl">
                         <img src={emptyStateImage} alt="Empty questionnaire" className="mx-auto mb-8 h-48" />

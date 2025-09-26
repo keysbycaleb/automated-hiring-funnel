@@ -5,14 +5,16 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PhotoIcon } from '@heroicons/react/24/outline';
+import { PhotoIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 import companyNameCharacter from '../assets/company-name.png';
 import profilePicCharacter from '../assets/profile-pic.png';
+import calendlyCharacter from '../assets/profile-pic.png'; // Using same character for now
 
 const INITIAL_DATA = {
   companyName: '',
   logoFile: null,
   previewUrl: null,
+  calendlyUrl: '',
 };
 
 const variants = {
@@ -44,6 +46,7 @@ export default function Onboarding() {
   const steps = [
     <Step1 key="step1" {...data} updateFields={setData} />,
     <Step2 key="step2" {...data} updateFields={setData} />,
+    <Step3 key="step3" {...data} updateFields={setData} />,
   ];
 
   const next = () => {
@@ -75,6 +78,7 @@ export default function Onboarding() {
       await updateProfile({
         companyName: data.companyName,
         logoUrl: logoUrl,
+        calendlyUrl: data.calendlyUrl,
         onboardingComplete: true,
       });
 
@@ -86,7 +90,14 @@ export default function Onboarding() {
     }
   };
 
-  const characterImage = currentStepIndex === 0 ? companyNameCharacter : profilePicCharacter;
+  const characterImages = [companyNameCharacter, profilePicCharacter, calendlyCharacter];
+  const characterImage = characterImages[currentStepIndex];
+  
+  const isNextDisabled = () => {
+    if (currentStepIndex === 0 && !data.companyName) return true;
+    if (currentStepIndex === 2 && !data.calendlyUrl) return true;
+    return false;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 overflow-hidden">
@@ -135,7 +146,7 @@ export default function Onboarding() {
                     Back
                   </button>
                 )}
-                <button type="submit" disabled={loading || (currentStepIndex === 0 && !data.companyName)} className="py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300">
+                <button type="submit" disabled={loading || isNextDisabled()} className="py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300">
                   {loading ? 'Saving...' : (currentStepIndex === steps.length - 1 ? 'Complete Setup' : 'Next')}
                 </button>
               </div>
@@ -199,6 +210,29 @@ function Step2({ previewUrl, updateFields }) {
           <input id="logo-upload" name="logo-upload" type="file" className="sr-only" onChange={handleFileChange} accept="image/*" />
         </label>
       </div>
+    </div>
+  );
+}
+
+function Step3({ calendlyUrl, updateFields }) {
+  return (
+    <div>
+      <h1 className="text-5xl font-bold text-gray-800">Scheduling Link</h1>
+      <p className="text-xl text-gray-600 mt-4 mb-8">Enter your Calendly link for automatic interview scheduling.</p>
+      <label htmlFor="calendlyUrl" className="block text-lg font-medium text-gray-700 text-left mb-2">
+        Calendly URL
+      </label>
+      <input
+        id="calendlyUrl"
+        name="calendlyUrl"
+        type="url"
+        required
+        value={calendlyUrl}
+        onChange={(e) => updateFields(prev => ({ ...prev, calendlyUrl: e.target.value }))}
+        placeholder="https://calendly.com/your-link"
+        className="mt-1 block w-full px-5 py-4 text-lg border border-gray-300 rounded-lg shadow-sm"
+        autoFocus
+      />
     </div>
   );
 }

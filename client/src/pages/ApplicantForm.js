@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { db, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, query, getDocs, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, serverTimestamp, orderBy, doc, getDoc } from 'firebase/firestore';
 
 export default function ApplicantForm() {
   const { userId } = useParams();
+  const navigate = useNavigate();
   const [sections, setSections] = useState([]);
+  const [questionnaireSettings, setQuestionnaireSettings] = useState({ pointsThreshold: 0 });
+  const [allQuestions, setAllQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState('loading');
   const [signature, setSignature] = useState('');
-  const [agreed, setAgreed] = useState(false); // For the signature checkbox
+  const [agreed, setAgreed] = useState(false);
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
@@ -47,11 +50,22 @@ export default function ApplicantForm() {
         try {
             const sectionsQuery = query(collection(db, `users/${userId}/sections`), orderBy("order"));
             const questionsQuery = query(collection(db, `users/${userId}/questionnaire`), orderBy("order"));
+            const settingsDoc = doc(db, `users/${userId}/questionnaireSettings`, 'main');
 
-            const [sectionsSnapshot, questionsSnapshot] = await Promise.all([ getDocs(sectionsQuery), getDocs(questionsQuery) ]);
+            const [sectionsSnapshot, questionsSnapshot, settingsSnapshot] = await Promise.all([ 
+                getDocs(sectionsQuery), 
+                getDocs(questionsQuery),
+                getDoc(settingsDoc)
+            ]);
+
+            if (settingsSnapshot.exists()) {
+                setQuestionnaireSettings(settingsSnapshot.data());
+            }
 
             const sectionsData = sectionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), questions: [] }));
             const questionsData = questionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            setAllQuestions(questionsData);
 
             const questionsMap = new Map();
             questionsData.forEach(q => {
@@ -84,21 +98,54 @@ export default function ApplicantForm() {
     }
     setStatus('submitting');
     try {
+        let score = 0;
+        for (const questionId in answers) {
+            const question = allQuestions.find(q => q.id === questionId);
+            if (!question || !question.options) continue;
+
+            const answerValue = answers[questionId];
+            if (question.type === 'radio') {
+                const choice = question.options.find(opt => opt.value === answerValue);
+                if (choice && choice.points) score += Number(choice.points);
+            } else if (question.type === 'checkbox-group') {
+                for (const optionKey in answerValue) {
+                    if (answerValue[optionKey]) {
+                        const choice = question.options.find(opt => opt.value === optionKey);
+                        if (choice && choice.points) score += Number(choice.points);
+                    }
+                }
+            }
+        }
+
       let resumeUrl = '';
       if (file) {
         const storageRef = ref(storage, `resumes/${userId}/${Date.now()}_${file.name}`);
         const snapshot = await uploadBytes(storageRef, file);
         resumeUrl = await getDownloadURL(snapshot.ref);
       }
+      
+      // --- THIS IS THE CHANGED SECTION ---
+      // Extract name and email using the hardcoded IDs from the contact section
+      const applicantName = answers['contact-name'] || 'N/A';
+      const applicantEmail = answers['contact-email'] || 'N/A';
 
       await addDoc(collection(db, `users/${userId}/applicants`), {
+        name: applicantName,
+        email: applicantEmail,
         answers,
         resumeUrl,
         signature,
+        score, // Changed from totalScore to score
         submittedAt: serverTimestamp(),
         status: 'New'
       });
-      setStatus('submitted');
+      
+      if (score >= (questionnaireSettings.pointsThreshold || 0)) {
+        navigate('/schedule-interview', { state: { questionnaireOwnerId: userId } });
+      } else {
+        navigate('/application-submitted');
+      }
+
     } catch (error) {
       console.error("Error submitting application: ", error);
       setStatus('error');
@@ -108,15 +155,7 @@ export default function ApplicantForm() {
   if (status === 'loading') return <div className="p-8 text-center">Loading form...</div>;
   if (status === 'error') return <div className="p-8 text-center text-red-500">Could not load application form. Please check the URL and try again.</div>;
   if (status === 'no-questions') return <div className="p-8 text-center text-gray-500">This application form has no questions yet.</div>;
-  if (status === 'submitted') return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <div className="max-w-2xl w-full bg-white p-8 rounded-lg shadow-md text-center">
-        <h1 className="text-3xl font-bold text-gray-800 mb-4">Thank You!</h1>
-        <p className="text-gray-600">Your application has been submitted successfully.</p>
-      </div>
-    </div>
-  );
-
+  
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       <div className="max-w-4xl w-full bg-white p-8 rounded-lg shadow-md">

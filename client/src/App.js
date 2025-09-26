@@ -16,6 +16,8 @@ import QuestionnairePreview from './pages/QuestionnairePreview';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Onboarding from './pages/Onboarding';
+import ApplicationSubmitted from './pages/ApplicationSubmitted'; // Import new page
+import ScheduleInterview from './pages/ScheduleInterview'; // Import new page
 
 function App() {
   return (
@@ -27,6 +29,8 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<SignUp />} />
               <Route path="/apply/:userId" element={<ApplicantForm />} />
+              <Route path="/application-submitted" element={<ApplicationSubmitted />} />
+              <Route path="/schedule-interview" element={<ScheduleInterview />} />
               <Route path="/*" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
               <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
             </Routes>
@@ -67,4 +71,3 @@ function AppContent() {
 }
 
 export default App;
-
