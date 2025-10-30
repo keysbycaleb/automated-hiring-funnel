@@ -5,7 +5,7 @@ import { useProfile } from '../context/ProfileContext';
 
 export default function ProtectedRoute({ children }) {
   const { currentUser } = useAuth();
-  const { profile, loadingProfile } = useProfile();
+  const { loadingProfile } = useProfile(); // We still need this
   const location = useLocation();
 
   // 1. If not logged in, always redirect to the login page.
@@ -14,7 +14,8 @@ export default function ProtectedRoute({ children }) {
   }
 
   // 2. While we are fetching the profile, show a robust, full-screen loading state.
-  //    This is the critical step that prevents the "flash".
+  //    This prevents the app from flashing or trying to load data before
+  //    the user profile is available.
   if (loadingProfile) {
     return (
       <div className="min-h-screen w-full bg-gray-100 flex items-center justify-center">
@@ -23,31 +24,14 @@ export default function ProtectedRoute({ children }) {
     );
   }
   
-  // After loading is complete, we can check the user's status.
-  const onboardingComplete = profile?.onboardingComplete;
-  const isOnboardingPage = location.pathname === '/onboarding';
+  // 3. --- ONBOARDING LOGIC REMOVED ---
+  // We no longer check for onboardingComplete.
+  // As long as you are logged in and your profile has loaded,
+  // we will show the main app content.
 
-  // 3. If onboarding is NOT complete:
-  if (!onboardingComplete) {
-    // If they are on the correct onboarding page, show it.
-    if (isOnboardingPage) {
-      return children; 
-    }
-    // If they are anywhere else, force them to the onboarding page.
-    return <Navigate to="/onboarding" replace />;
-  }
-
-  // 4. If onboarding IS complete:
-  if (onboardingComplete) {
-    // If they are trying to go back to the onboarding page, redirect them to the dashboard.
-    if (isOnboardingPage) {
-      return <Navigate to="/" replace />;
-    }
-    // Otherwise, they are where they should be. Show the main app content.
-    return children;
-  }
+  // 4. Show the main app content (e.g., Dashboard, Questionnaire, etc.)
+  return children;
 
   // This is a fallback and should not normally be reached.
-  return <Navigate to="/login" replace />;
+  // return <Navigate to="/login" replace />;
 }
-

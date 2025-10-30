@@ -1,548 +1,261 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { collection, doc, writeBatch, query, orderBy, getDocs, addDoc, updateDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
-import { DragDropContext } from '@hello-pangea/dnd';
 import { useAuth } from '../context/AuthContext';
-import QuestionModal from '../components/QuestionModal';
-import ConfirmModal from '../components/ConfirmModal';
-import CreateChoiceModal from '../components/CreateChoiceModal';
-import AlertModal from '../components/AlertModal';
-import Section from '../components/Section';
-import TemplateBrowser from '../components/TemplateBrowser';
-import { PencilIcon, ChevronDownIcon, RectangleGroupIcon, DocumentPlusIcon, EyeIcon, UserPlusIcon, BookOpenIcon } from '@heroicons/react/24/outline';
-import { useReordering } from '../context/ReorderingContext';
-import emptyStateImage from '../assets/empty-state.png';
+import { motion } from 'framer-motion';
+import { Save, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import AlertModal from '../components/AlertModal'; // We'll re-use this
 
-export default function QuestionnaireBuilder() {
-    const { currentUser } = useAuth();
-    const { setIsReordering: setAppReordering } = useReordering();
-    const [sections, setSections] = useState([]);
-    const [pointsThreshold, setPointsThreshold] = useState(0); // New state for threshold
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
-    const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false);
-    const [editingItem, setEditingItem] = useState(null);
-    const [modalContext, setModalContext] = useState({});
-    const [loading, setLoading] = useState(true);
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [confirmModalState, setConfirmModalState] = useState({ isOpen: false });
-    const [alertModalState, setAlertModalState] = useState({ isOpen: false });
-    const [isReordering, setIsReordering] = useState(false);
-    const [activeSectionId, setActiveSectionId] = useState(null);
-    const dropdownRef = useRef(null);
-    const questionsContainerRef = useRef(null);
-    const headerRef = useRef(null);
+// Helper component for clean input fields
+const ConfigInput = ({ label, value, onChange, placeholder, type = 'text' }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700">{label}</label>
+    <div className="mt-1">
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="block w-full px-3 py-2 placeholder-gray-400 border border-gray-300 rounded-md shadow-sm appearance-none focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+      />
+    </div>
+  </div>
+);
 
-    const getCollectionPath = (col) => `users/${currentUser.uid}/${col}`;
+// Helper component for larger text areas
+const ConfigTextarea = ({ label, value, onChange, placeholder, rows = 3 }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700">{label}</label>
+    <div className="mt-1">
+      <textarea
+        rows={rows}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="block w-full p-2 placeholder-gray-400 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+      />
+    </div>
+  </div>
+);
 
-    const handleSelectTemplate = async (templateId) => {
-        if (!currentUser || !templateId) return;
-        setIsTemplateBrowserOpen(false);
-        setLoading(true);
+// Helper for styling collapsible sections
+const SectionWrapper = ({ title, children }) => (
+  <div className="bg-white rounded-lg shadow">
+    <div className="px-4 py-5 sm:p-6">
+      <h3 className="text-lg font-medium leading-6 text-gray-900">{title}</h3>
+      <div className="mt-6 space-y-6">{children}</div>
+    </div>
+  </div>
+);
 
-        try {
-            const batch = writeBatch(db);
-            const templateSectionsRef = collection(db, `questionTemplates/${templateId}/sections`);
-            const templateSectionsSnap = await getDocs(query(templateSectionsRef, orderBy('order')));
+export default function ProductManager() {
+  const { currentUser } = useAuth();
+  const [config, setConfig] = useState(null); // Will hold our config/main data
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [alert, setAlert] = useState({ show: false, message: '', isError: false });
 
-            for (const sectionDoc of templateSectionsSnap.docs) {
-                const sectionData = sectionDoc.data();
-                const newSectionRef = doc(collection(db, getCollectionPath('sections')));
-                batch.set(newSectionRef, { title: sectionData.title, order: sectionData.order });
+  // --- NEW DATA LOGIC (Replaces old questionnaire logic) ---
+  // Fetches the single config doc from 'config/main'
+  const fetchConfig = useCallback(async () => {
+    if (!currentUser) return;
+    setLoading(true);
+    try {
+      const configRef = doc(db, 'config', 'main');
+      const docSnap = await getDoc(configRef);
 
-                const templateQuestionsRef = collection(sectionDoc.ref, 'questions');
-                const templateQuestionsSnap = await getDocs(query(templateQuestionsRef, orderBy('order')));
-                
-                templateQuestionsSnap.forEach(questionDoc => {
-                    const questionData = questionDoc.data();
-                    const newQuestionRef = doc(collection(db, getCollectionPath('questionnaire')));
-                    batch.set(newQuestionRef, { ...questionData, sectionId: newSectionRef.id });
-                });
-            }
-
-            await batch.commit();
-            await fetchData();
-        } catch (error) {
-            console.error("Error importing template:", error);
-            showAlert("Import Error", "There was an error importing the selected template.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-
-    const saveOrder = useCallback(async () => {
-        if (isReordering && currentUser) {
-            const batch = writeBatch(db);
-            sections.forEach((section, sectionIndex) => {
-                const sectionRef = doc(db, getCollectionPath('sections'), section.id);
-                batch.update(sectionRef, { order: sectionIndex });
-                section.questions.forEach((question, questionIndex) => {
-                    const docRef = doc(db, getCollectionPath('questionnaire'), question.id);
-                    batch.update(docRef, { order: questionIndex, sectionId: section.id });
-                });
-            });
-            await batch.commit();
-            setIsReordering(false);
-        }
-    }, [isReordering, sections, currentUser]);
-
-    // --- NEW: Save threshold whenever it changes ---
-    const handleThresholdChange = (e) => {
-        const value = e.target.value === '' ? '' : Number(e.target.value);
-        setPointsThreshold(value);
-    };
-
-    const saveThreshold = useCallback(async () => {
-        if (currentUser && pointsThreshold !== '') {
-            const settingsRef = doc(db, getCollectionPath('questionnaireSettings'), 'main');
-            await setDoc(settingsRef, { pointsThreshold }, { merge: true });
-        }
-    }, [currentUser, pointsThreshold]);
-
-    useEffect(() => {
-        setAppReordering(isReordering);
-    }, [isReordering, setAppReordering]);
-
-    const fetchData = useCallback(async () => {
-        if (!currentUser) {
-            setLoading(false);
-            return;
-        }
-        setLoading(true);
-        const sectionsQuery = query(collection(db, getCollectionPath('sections')), orderBy('order', 'asc'));
-        const questionsQuery = query(collection(db, getCollectionPath('questionnaire')), orderBy('order', 'asc'));
-        const settingsDoc = doc(db, getCollectionPath('questionnaireSettings'), 'main');
-        
-        const [sectionsSnapshot, questionsSnapshot, settingsSnapshot] = await Promise.all([
-            getDocs(sectionsQuery), 
-            getDocs(questionsQuery),
-            getDoc(settingsDoc)
-        ]);
-        
-        if (settingsSnapshot.exists()) {
-            setPointsThreshold(settingsSnapshot.data().pointsThreshold || 0);
-        }
-
-        const sectionsData = sectionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), questions: [] }));
-        const questionsData = questionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        const sectionsMap = new Map(sectionsData.map(s => [s.id, s]));
-        questionsData.forEach(q => {
-            if (q.sectionId && sectionsMap.has(q.sectionId)) {
-                sectionsMap.get(q.sectionId).questions.push(q);
-            }
-        });
-
-        setSections(Array.from(sectionsMap.values()));
-        setLoading(false);
-    }, [currentUser]);
-
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const handleImportContactSection = async () => {
-        if (!currentUser) return;
-        setIsDropdownOpen(false);
-    
-        const contactSectionExists = sections.some(s => s.title.toLowerCase() === 'contact information');
-        if (contactSectionExists) {
-            showAlert("Section Exists", "You already have a Contact Information section.");
-            return;
-        }
-    
-        const batch = writeBatch(db);
-    
-        const newSectionRef = doc(collection(db, getCollectionPath('sections')));
-        const newSectionData = {
-            title: 'Contact Information',
-            order: sections.length,
-            isDeletable: true,
+      if (docSnap.exists()) {
+        setConfig(docSnap.data());
+      } else {
+        // If no config exists, create a default one
+        const defaultConfig = {
+          baseHourlyRate: 150,
+          tiers: [
+            { id: 'foundation', name: 'Foundation', price: 199, setupFee: 1000, features: 'Feature 1\nFeature 2' },
+            { id: 'growth', name: 'Growth', price: 299, setupFee: 1500, features: 'Feature 1\nFeature 2\nFeature 3' },
+            { id: 'accelerator', name: 'Accelerator', price: 499, setupFee: 2000, features: 'All Features\nPriority Support' },
+          ],
+          paymentPlans: [
+            { id: '12mo', name: '12-Month Prepay', discount: 0.1 },
+            { id: '2mo', name: '2-Month Prepay', discount: 0.05 },
+            { id: 'monthly', name: 'Monthly', discount: 0.0 },
+          ],
         };
-        batch.set(newSectionRef, newSectionData);
-    
-        const contactQuestions = [
-            { id: 'contact-name', question: 'Full Name', type: 'short-text', order: 0, sectionId: newSectionRef.id },
-            { id: 'contact-email', question: 'Email', type: 'short-text', order: 1, sectionId: newSectionRef.id },
-            { id: 'contact-phone', question: 'Phone Number', type: 'short-text', order: 2, sectionId: newSectionRef.id },
-        ];
-    
-        contactQuestions.forEach(q => {
-            const qRef = doc(db, getCollectionPath('questionnaire'), q.id);
-            batch.set(qRef, q);
-        });
-    
-        await batch.commit();
-        await fetchData();
-    };
-    
+        await setDoc(configRef, defaultConfig);
+        setConfig(defaultConfig);
+      }
+    } catch (error) {
+      console.error('Error fetching config:', error);
+      setAlert({ show: true, message: `Error fetching config: ${error.message}`, isError: true });
+    }
+    setLoading(false);
+  }, [currentUser]);
 
-    const canReorder = sections.length > 1 || sections.flatMap(s => s.questions).length > 1;
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
 
-    useEffect(() => {
-        const handleDropdownClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                setIsDropdownOpen(false);
-            }
-        };
+  // --- NEW SAVE LOGIC ---
+  // Saves the entire config object back to 'config/main'
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const configRef = doc(db, 'config', 'main');
+      await setDoc(configRef, config, { merge: true }); // Use merge to be safe
+      setAlert({ show: true, message: 'Configuration saved successfully!', isError: false });
+    } catch (error) {
+      console.error('Error saving config:', error);
+      setAlert({ show: true, message: `Error saving config: ${error.message}`, isError: true });
+    }
+    setSaving(false);
+  };
 
-        const handleReorderClickOutside = (event) => {
-            if (
-                isReordering &&
-                questionsContainerRef.current && !questionsContainerRef.current.contains(event.target) &&
-                headerRef.current && !headerRef.current.contains(event.target)
-            ) {
-                const modals = document.querySelectorAll('.fixed.inset-0.z-50');
-                let clickInModal = false;
-                modals.forEach(modal => {
-                    if (modal.contains(event.target)) {
-                        clickInModal = true;
-                    }
-                });
+  // --- Helper functions to update the complex state ---
+  const handleTierChange = (index, field, value) => {
+    const updatedTiers = [...config.tiers];
+    updatedTiers[index] = { ...updatedTiers[index], [field]: value };
+    setConfig({ ...config, tiers: updatedTiers });
+  };
 
-                if (!clickInModal) {
-                    saveOrder();
-                }
-            }
-        };
+  const handlePlanChange = (index, field, value) => {
+    const updatedPlans = [...config.paymentPlans];
+    updatedPlans[index] = { ...updatedPlans[index], [field]: value };
+    setConfig({ ...config, paymentPlans: updatedPlans });
+  };
 
-        const handleKeyDown = (event) => {
-            if (isModalOpen || confirmModalState.isOpen || isChoiceModalOpen || alertModalState.isOpen || isTemplateBrowserOpen || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
-                return;
-            }
-            if (event.key === 'r' && canReorder && !isReordering) {
-                event.preventDefault();
-                setIsReordering(true);
-            }
-        };
-
-        document.addEventListener("mousedown", handleDropdownClickOutside);
-        document.addEventListener("mousedown", handleReorderClickOutside);
-        document.addEventListener("keydown", handleKeyDown);
-
-        if (isReordering) {
-            document.body.classList.add('select-none');
-        } else {
-            document.body.classList.remove('select-none');
-        }
-
-        return () => {
-            document.removeEventListener("mousedown", handleDropdownClickOutside);
-            document.removeEventListener("mousedown", handleReorderClickOutside);
-            document.removeEventListener("keydown", handleKeyDown);
-            document.body.classList.remove('select-none');
-        };
-    }, [isReordering, isModalOpen, confirmModalState.isOpen, isChoiceModalOpen, alertModalState.isOpen, sections, canReorder, saveOrder, isTemplateBrowserOpen]);
-
-    const handleOpenModal = async (item = null, context = {}) => {
-        if (isReordering) {
-            await saveOrder();
-        }
-        if (context.type === 'question' && !item) {
-            setActiveSectionId(context.sectionId);
-        }
-        setEditingItem(item);
-        setModalContext(context);
-        setIsModalOpen(true);
-        setIsDropdownOpen(false);
-    };
-
-    const handleCloseModal = () => {
-        setEditingItem(null);
-        setModalContext({});
-        setIsModalOpen(false);
-        setActiveSectionId(null);
-    };
-
-    const handleCreateChoice = (choice) => {
-        setIsChoiceModalOpen(false);
-        handleOpenModal(null, { type: choice });
-    };
-
-    const showAlert = (title, message) => {
-        setAlertModalState({ isOpen: true, title, message });
-    };
-
-    const handleSaveItem = async (itemData) => {
-        if (!currentUser) return;
-        if (modalContext.type === 'section') {
-            if (!itemData.title || itemData.title.trim() === '') {
-                showAlert("Title Required", "Section title cannot be empty. Please enter a title to create the section.");
-                return;
-            }
-            if (editingItem && editingItem.id) {
-                await updateDoc(doc(db, getCollectionPath('sections'), editingItem.id), itemData);
-            } else {
-                const newOrder = sections.length;
-                await addDoc(collection(db, getCollectionPath('sections')), { ...itemData, order: newOrder });
-            }
-        } else {
-            if (!itemData.question || itemData.question.trim() === '') {
-                showAlert("Question Required", "Question text cannot be empty. Please enter a question.");
-                return;
-            }
-            if (editingItem && editingItem.id) {
-                await updateDoc(doc(db, getCollectionPath('questionnaire'), editingItem.id), itemData);
-            } else {
-                const questionsCollection = collection(db, getCollectionPath('questionnaire'));
-                const sectionId = itemData.sectionId || (sections.length > 0 ? sections[0].id : null);
-                if (!sectionId) {
-                    console.error("Cannot create a question without a section.");
-                    showAlert("Error", "An error occurred. A question must belong to a section.");
-                    return;
-                }
-                const newOrder = sections.find(s => s.id === sectionId)?.questions.length || 0;
-                await addDoc(questionsCollection, { ...itemData, order: newOrder, sectionId });
-            }
-        }
-        await fetchData();
-        handleCloseModal();
-    };
-
-    const handleDeleteRequest = (item, type) => {
-        let title = 'Delete Item';
-        let message = 'Are you sure you want to delete this item? This action cannot be undone.';
-        let onConfirm;
-
-        if (type === 'section') {
-            title = 'Delete Section';
-            message = 'Are you sure you want to delete this section and all the questions within it? This action cannot be undone.';
-            onConfirm = () => handleDeleteConfirm(item, type);
-        } else {
-            title = 'Delete Question';
-            onConfirm = () => handleDeleteConfirm(item, type);
-        }
-
-        setConfirmModalState({
-            isOpen: true,
-            title,
-            message,
-            onConfirm,
-        });
-    };
-
-    const handleDeleteConfirm = async (itemOrId, type) => {
-        if (!currentUser) return;
-        if (type === 'section') {
-            const batch = writeBatch(db);
-            itemOrId.questions.forEach(q => {
-                const questionDoc = doc(db, getCollectionPath('questionnaire'), q.id);
-                batch.delete(questionDoc);
-            });
-            const sectionDoc = doc(db, getCollectionPath('sections'), itemOrId.id);
-            batch.delete(sectionDoc);
-            await batch.commit();
-        } else {
-            await deleteDoc(doc(db, getCollectionPath('questionnaire'), itemOrId));
-        }
-
-        await fetchData();
-        setConfirmModalState({ isOpen: false });
-    };
-
-    const onDragEnd = (result) => {
-        const { source, destination } = result;
-        if (!destination) return;
-
-        const sourceSectionId = source.droppableId;
-        const destSectionId = destination.droppableId;
-
-        let newSections = JSON.parse(JSON.stringify(sections));
-        const sourceSection = newSections.find(s => s.id === sourceSectionId);
-        const destSection = newSections.find(s => s.id === destSectionId);
-
-        const [removed] = sourceSection.questions.splice(source.index, 1);
-
-        if (sourceSectionId === destSectionId) {
-            sourceSection.questions.splice(destination.index, 0, removed);
-        } else {
-            removed.sectionId = destSectionId;
-            destSection.questions.splice(destination.index, 0, removed);
-        }
-
-        setSections(newSections);
-    };
-
-    const aiQuestionCount = sections.flatMap(s => s.questions).filter(q => q.type === 'long-text-ai').length;
-
+  // --- Loading State (Preserves UI feel) ---
+  // We now wait if loading is true OR if config is still null
+  if (loading || !config) { 
     return (
-        <div className="p-8">
-            <div ref={headerRef} className="flex justify-between items-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">Questionnaire Builder</h1>
-                <div className="flex items-center space-x-4">
-                    <Link to="/questionnaire/preview" className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 px-6 rounded-2xl transition-colors duration-200 flex items-center shadow-sm border border-gray-300">
-                        <EyeIcon className="h-5 w-5 mr-2" />
-                        Preview
-                    </Link>
-                    {canReorder && (
-                        isReordering ? (
-                            <button onClick={saveOrder} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-2xl transition-colors duration-200">
-                                Done
-                            </button>
-                        ) : (
-                            <button type="button" onClick={() => setIsReordering(true)} className="text-gray-600 hover:text-gray-900 font-bold py-3 px-4 rounded-2xl transition-colors duration-200">
-                                Reorder
-                            </button>
-                        )
-                    )}
-                    <div className="relative" ref={dropdownRef}>
-                        <div className="flex rounded-2xl shadow-sm border border-gray-300">
-                            <button
-                                onClick={() => setIsChoiceModalOpen(true)}
-                                className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 pl-6 pr-4 rounded-l-2xl transition-colors duration-200 flex items-center"
-                            >
-                                <PencilIcon className="h-5 w-5 mr-2" />
-                                Create
-                            </button>
-                            <div className="border-l border-gray-300"></div>
-                            <button
-                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                                className="bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 px-3 rounded-r-2xl transition-colors duration-200"
-                            >
-                                <ChevronDownIcon className="h-5 w-5" />
-                            </button>
-                        </div>
-                        {isDropdownOpen && (
-                            <div className="origin-top-right absolute right-0 mt-2 w-64 rounded-2xl shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
-                                <div className="py-1">
-                                    <a href="#" onClick={(e) => { e.preventDefault(); handleImportContactSection(); }} className="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 flex items-center">
-                                        <UserPlusIcon className="h-5 w-5 mr-3" />
-                                        Import Contact Section
-                                    </a>
-                                    <a href="#" onClick={(e) => { e.preventDefault(); handleOpenModal(null, { type: 'section' }); }} className="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 flex items-center">
-                                        <RectangleGroupIcon className="h-5 w-5 mr-3" />
-                                        Add New Section
-                                    </a>
-                                    <a href="#"
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            if (sections.length > 0) handleOpenModal(null, { type: 'question', sectionId: sections[0].id });
-                                        }}
-                                        className={`text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 flex items-center ${sections.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                        <DocumentPlusIcon className="h-5 w-5 mr-3" />
-                                        Add New Question
-                                    </a>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {aiQuestionCount >= 7 && (
-                <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-6 rounded-2xl mb-6" role="alert">
-                    <p className="font-bold">API Usage Alert</p>
-                    <p>You have used {aiQuestionCount} of your 10 available AI-scored questions. You have {10 - aiQuestionCount} remaining.</p>
-                </div>
-            )}
-             {/* --- NEW: Points Threshold Input --- */}
-            { !loading && sections.length > 0 && (
-                <div className="mb-8 p-6 bg-white rounded-2xl shadow-sm border border-gray-200">
-                    <label htmlFor="pointsThreshold" className="block text-lg font-bold text-gray-800">
-                        Interview Score Threshold
-                    </label>
-                    <p className="text-sm text-gray-500 mt-1 mb-3">
-                        Applicants who score at or above this number will be prompted to schedule an interview automatically.
-                    </p>
-                    <input
-                        type="number"
-                        id="pointsThreshold"
-                        value={pointsThreshold}
-                        onChange={handleThresholdChange}
-                        onBlur={saveThreshold} // Save when the user clicks away
-                        className="mt-1 block w-full max-w-xs px-4 py-3 text-lg border border-gray-300 rounded-lg shadow-sm"
-                        placeholder="e.g., 75"
-                    />
-                </div>
-            )}
-
-            {loading ? (
-                <p>Loading...</p>
-            ) : sections.length === 0 ? (
-                <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 250px)' }}>
-                    <div className="text-center p-10 bg-white rounded-[25px] shadow-lg border border-gray-200 w-full max-w-3xl">
-                        <img src={emptyStateImage} alt="Empty questionnaire" className="mx-auto mb-8 h-48" />
-                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Your questionnaire is empty.</h2>
-                        <p className="text-gray-600 mb-6">
-                            Create your first section or get started even faster with a template.
-                        </p>
-                        <div className="flex justify-center space-x-4">
-                            <button
-                                onClick={() => handleOpenModal(null, { type: 'section' })}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center"
-                            >
-                                <RectangleGroupIcon className="h-5 w-5 mr-2" />
-                                Create a Section
-                            </button>
-                            <button
-                                onClick={() => setIsTemplateBrowserOpen(true)}
-                                className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-lg transition-colors flex items-center"
-                            >
-                                <BookOpenIcon className="h-5 w-5 mr-2" />
-                                Start from a Template
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                <div ref={questionsContainerRef}>
-                    <DragDropContext onDragEnd={onDragEnd}>
-                        {sections.map(section => (
-                            <Section
-                                key={section.id}
-                                section={section}
-                                isReordering={isReordering}
-                                activeSectionId={activeSectionId}
-                                onEditQuestion={(q) => handleOpenModal(q, { type: 'question' })}
-                                onDeleteQuestion={(id) => handleDeleteRequest(id, 'question')}
-                                onEditSection={(s) => handleOpenModal(s, { type: 'section' })}
-                                onDeleteSection={(s) => handleDeleteRequest(s, 'section')}
-                                onAddQuestion={(sectionId) => handleOpenModal(null, { type: 'question', sectionId })}
-                            />
-                        ))}
-                    </DragDropContext>
-                </div>
-            )}
-
-            <TemplateBrowser
-                isOpen={isTemplateBrowserOpen}
-                onClose={() => setIsTemplateBrowserOpen(false)}
-                onSelectTemplate={handleSelectTemplate}
-            />
-
-            <CreateChoiceModal
-                isOpen={isChoiceModalOpen}
-                onClose={() => setIsChoiceModalOpen(false)}
-                onChoice={handleCreateChoice}
-                canCreateQuestion={sections.length > 0}
-            />
-
-            <QuestionModal
-                isOpen={isModalOpen}
-                onClose={handleCloseModal}
-                onSave={handleSaveItem}
-                item={editingItem}
-                context={modalContext}
-                sections={sections}
-            />
-            <ConfirmModal
-                isOpen={confirmModalState.isOpen}
-                onClose={() => setConfirmModalState({ isOpen: false })}
-                onConfirm={confirmModalState.onConfirm}
-                title={confirmModalState.title}
-            >
-                {confirmModalState.message}
-            </ConfirmModal>
-            <AlertModal
-                isOpen={alertModalState.isOpen}
-                onClose={() => setAlertModalState({ isOpen: false })}
-                title={alertModalState.title}
-            >
-                {alertModalState.message}
-            </AlertModal>
-        </div>
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+      </div>
     );
+  }
+
+  // --- NEW STATIC UI (Replaces Drag-and-Drop UI) ---
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="p-6 md:p-10"
+      >
+        {/* --- Header (Cosmetic Text Updated) --- */}
+        <div className="flex flex-col items-start justify-between md:flex-row md:items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Product & Pricing Manager
+            </h1>
+            <p className="mt-2 text-gray-600">
+              Manage your live service tiers, pricing, and payment options.
+              Changes here are reflected instantly on all client quotes.
+            </p> 
+            {/* --- THIS WAS THE BUG. It's now a </p> tag --- */}
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center justify-center w-full px-6 py-3 mt-4 font-medium text-white bg-blue-600 rounded-md shadow-sm disabled:bg-gray-400 hover:bg-blue-700 md:mt-0 md:w-auto"
+          >
+            {saving ? (
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-5 h-5 mr-2" />
+            )}
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+
+        {/* --- Main Settings Form --- */}
+        <div className="grid grid-cols-1 gap-8 mt-10 lg:grid-cols-3">
+          {/* --- Tiers Column --- */}
+          <div className="space-y-8 lg:col-span-2">
+            {config?.tiers?.map((tier, index) => (
+              <SectionWrapper key={tier.id} title={`${tier.name} Tier`}>
+                <ConfigInput
+                  label="Tier Name"
+                  value={tier.name}
+                  onChange={(e) => handleTierChange(index, 'name', e.target.value)}
+                  placeholder="e.g., Foundation"
+                />
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  <ConfigInput
+                    label="Monthly Price ($)"
+                    type="number"
+                    value={tier.price}
+                    onChange={(e) => handleTierChange(index, 'price', parseFloat(e.target.value))}
+                    placeholder="e.g., 299"
+                  />
+                  <ConfigInput
+                    label="Setup Fee ($)"
+                    type="number"
+                    value={tier.setupFee}
+                    onChange={(e) => handleTierChange(index, 'setupFee', parseFloat(e.target.value))}
+                    placeholder="e.g., 1500"
+                  />
+                </div>
+                <ConfigTextarea
+                  label="Features (one per line)"
+                  value={tier.features}
+                  onChange={(e) => handleTierChange(index, 'features', e.target.value)}
+                  placeholder="Feature 1..."
+                  rows={4}
+                />
+              </SectionWrapper>
+            ))}
+          </div>
+
+          {/* --- Global Settings Column --- */}
+          <div className="space-y-8 lg:col-span-1">
+            <SectionWrapper title="Global Variables">
+              <ConfigInput
+                label="Base Hourly Rate ($)"
+                type="number"
+                value={config.baseHourlyRate}
+                onChange={(e) => setConfig({ ...config, baseHourlyRate: parseFloat(e.target.value) })}
+                placeholder="e.g., 150"
+              />
+            </SectionWrapper>
+
+            <SectionWrapper title="Payment Plans">
+              {config?.paymentPlans?.map((plan, index) => (
+                <div key={plan.id} className="pb-4 border-b border-gray-200 last:border-b-0">
+                  <ConfigInput
+                    label="Plan Name"
+                    value={plan.name}
+                    onChange={(e) => handlePlanChange(index, 'name', e.target.value)}
+                    placeholder="e.g., 12-Month Prepay"
+                  />
+                  <ConfigInput
+                    label="Discount (e.g., 0.1 for 10%)"
+                    type="number"
+                    value={plan.discount}
+                    onChange={(e) => handlePlanChange(index, 'discount', parseFloat(e.target.value))}
+                    placeholder="e.g., 0.1"
+                  />
+                </div>
+              ))}
+            </SectionWrapper>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* --- Re-using the existing AlertModal --- */}
+      <AlertModal
+        isOpen={alert.show}
+        onClose={() => setAlert({ ...alert, show: false })}
+        title={alert.isError ? 'Error Occurred' : 'Success'}
+        message={alert.message}
+        icon={
+          alert.isError ? (
+            <AlertCircle className="w-12 h-12 text-red-500" />
+          ) : (
+            <CheckCircle className="w-12 h-12 text-green-500" />
+          )
+        }
+      />
+    </>
+  );
 }

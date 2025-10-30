@@ -7,18 +7,18 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "postinstall": "puppeteer browsers install chrome"
   },
   "engines": {
     "node": "20"
   },
   "main": "index.js",
   "dependencies": {
-    "@google-ai/generativelanguage": "^3.4.0",
-    "@google/generative-ai": "^0.24.1",
     "firebase-admin": "^12.1.1",
     "firebase-functions": "^5.0.1",
-    "google-auth-library": "^10.3.0"
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^24.27.0"
   },
   "devDependencies": {
     "eslint": "^8.15.0",

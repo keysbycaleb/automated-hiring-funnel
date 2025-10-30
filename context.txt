@@ -1,0 +1,144 @@
+SECTION 1: HEADER METADATA
+Project Name: Quote Hub
+Author: Caleb Lanting, Lanting Digital LLC
+Purpose: Centralized web application for a design/development agency to manage service products, generate client quotes, and automate the contract-to-intake pipeline.
+Context Version: v1.1 (Updated 2025-10-30)
+
+SECTION 2: OVERVIEW / MISSION
+The Quote Hub is a secure, cloud-based web application that serves as the central "brain" for business operations.
+It was built to solve the inefficiency of manually creating multiple PDF quotes for clients (the "nine PDF problem").
+The system generates quotes in two distinct formats:
+1.  Dynamic Client Links: A client receives a unique URL to an interactive "Tinker Toy" calculator where they can compare service tiers and payment plans, with prices updating live.
+2.  Static PDFs: An admin can generate a traditional, static PDF for a specific, pre-selected service package.
+The end-to-end vision is to automate the entire client intake process, from the initial quote (in either format) to a client's final acceptance, which automatically generates a full set of signed legal contracts (SOW, MSA, etc.).
+SECTION 3: ARCHITECTURE SUMMARY
+Tech Stack:
+- Frontend: React (Create React App)
+- Backend: Firebase (Node.js)
+- Database: Firestore
+- File Storage: Firebase Storage
+- Authentication: Firebase Authentication
+- Serverless Functions: Firebase Cloud Functions (2nd Gen, Node.js 20)
+- PDF Generation: 
+  - pdf-lib (for simple static quotes)
+  - puppeteer (Full package, for HTML-to-PDF contract generation)
+
+*** KEY INFRASTRUCTURE FIX (Oct 2025) ***
+The contract generation function (`generateContractV2`) was failing due to environment issues with `puppeteer-core`. The problem was solved by:
+1.  **Switching to the full `puppeteer` package** from `puppeteer-core`.
+2.  **Creating a `.puppeteerrc.cjs` file** in the `functions/` directory to tell Puppeteer to use the writable `/tmp/puppeteer_cache` folder in the serverless environment.
+3.  **Adding a `postinstall` script** to `functions/package.json` (`"puppeteer browsers install chrome"`) to force the server to download Puppeteer's bundled browser into that cache during deployment.
+4.  **Renaming the function** to `generateContractV2` to bypass any V1/V2 "ghost" function conflicts.
+
+Directory Structure:
+- automated-hiring-funnel/ (Project Root)
+  - client/ (React Application)
+    - src/
+      - pages/
+        - Dashboard.js (Admin main page)
+        - AllApplicants.js (Repurposed as AllQuotes.js)
+        - ApplicantProfile.js (Repurposed as QuoteProfile.js)
+        - QuestionnaireBuilder.js (Repurposed as ProductManager.js)
+        - ApplicantForm.js (Repurposed as QuoteCalculator.js - the client "Tinker Toy")
+      - components/
+        - Sidebar.js
+        - Header.js
+        - NewQuoteModal.js (Admin modal for new quotes)
+      - logic/
+        - quoteCalculator.js (The "Brain" - holds all calculation logic)
+      - firebase.js (Firebase SDK init, exports `generateContractV2`)
+  - functions/ (Firebase Cloud Functions - Node.js 20)
+    - templates/
+      - SOW.html, MSA.html, SLA.html, DPA.html, style.css
+    - .puppeteerrc.cjs (Puppeteer config file for cache path)
+    - index.js (Backend function definitions)
+    - package.json (Backend dependencies, includes `puppeteer` and `postinstall` script)
+  - firebase.json (Configured for `"runtime": "nodejs20"`)
+  - firestore.rules
+  - storage.rules
+
+System Flow:
+1.  Admin logs into the React app.
+2.  Admin visits "Product Manager" page to set service prices/details (`config/main`).
+3.  Admin opens "New Quote Modal" from "Dashboard".
+4.  Admin chooses one of two paths:
+    - Path A (Dynamic): Clicks "Generate Client Link" (creates `quotes` doc).
+    - Path B (Static): Clicks "Generate PDF" (calls `generateQuotePDF`).
+5.  Client Flow (Path A):
+    - Client opens /quote/xyz123.
+- `QuoteCalculator.js` fetches `quotes/xyz123` and `config/main`.
+- Client "tinkers" and clicks "Accept Quote & Generate Contract".
+6.  Contract Generation:
+    - The client's click calls the `generateContractV2` cloud function (publicly invocable).
+- The function reads Firestore data.
+- It reads the 4 HTML templates.
+- It replaces placeholders (e.g., [Client Legal Name]).
+- It uses the full `puppeteer` package to render each HTML file as a PDF.
+- It saves all 4 PDFs to Firebase Storage.
+    - It updates the original quote document with `status: "Signed"`.
+SECTION 4: DATA MODELS / ENTITIES
+(Data models are unchanged. `config` collection for prices, `quotes` collection for client-specifics.)
+
+Firestore Collection: config (Document: main)
+    - baseHourlyRate: (Number)
+    - tiers: (Array)
+    - paymentPlans: (Array)
+  
+Firestore Collection: quotes (Document: [quoteId])
+- clientName, email, hours, discountPct, status, etc.
+- contractDocs: (Array) (Set after contract generation)
+
+SECTION 5: FUNCTIONAL MODULES
+(Updated to reflect `generateContractV2`)
+
+CLIENT-SIDE (client/src/):
+- ProductManager.js: Admin UI for `config/main`.
+- QuoteCalculator.js: Client "Tinker Toy", calls `generateContractV2` on accept.
+- quoteCalculator.js: The "Brain" (pure logic).
+- NewQuoteModal.js: Admin modal, calls `generateQuotePDF`.
+- ApplicantProfile.js (QuoteProfile.js): Admin view of a quote.
+- Contains the admin button to manually trigger `generateContractV2`.
+
+SERVER-SIDE (functions/index.js):
+- generateQuotePDF (Cloud Function, v2): Simple PDF generation with `pdf-lib`.
+- generateContractV2 (Cloud Function, v2):
+  - Called by client OR admin.
+- Receives a `quoteId`.
+- Fetches all data from Firestore.
+  - Reads HTML templates.
+- Replaces [Placeholders].
+  - Uses full `puppeteer` package (with `postinstall` script and `.puppeteerrc.cjs`) to convert 4 HTML files to 4 PDFs.
+- Saves PDFs to Storage and updates `quotes/{id}` document.
+
+SECTION 6: CURRENT FOCUS / TODOS
+- **COMPLETED:** Fix the core contract generation pipeline. The `generateContractV2` function is now successfully using the full `puppeteer` package in the Node.js 20 serverless environment to generate and save PDF contracts.
+
+- **NEXT PRIORITY:** Integrate advanced, role-based calculation logic from the old `quote-hub/public/quoteCalculator.js` into the new `client/src/logic/quoteCalculator.js`.
+- TODO: Update the `ProductManager.js` UI to include new form fields for role-based hour percentages (e.g., Dev %, Design %, PM %) for each tier.
+- TODO: Port the *same* advanced, role-based logic to the `functions/index.js` `calculatePrices` helper function to ensure 100% calculation consistency between client and server.
+- TODO: Review all `[Placeholders]` in the 4 HTML templates and ensure the `placeholderData` object in `functions/index.js` provides values for all of them.
+
+SECTION 7: DESIGN & UX NOTES
+(Unchanged)
+- UI Framework: Tailwind CSS, utility-first.
+- UX Philosophy: "Seamless adaptation."
+- Refactoring: Preserve 100% of existing functionality.
+
+SECTION 8: AI COLLABORATION GUIDELINES
+(Unchanged)
+- Core Principle: Preserve existing functionality and UI styling.
+- Naming: Update variables to "Quote Hub" domain.
+- Modularity: Keep business logic in `client/src/logic/quoteCalculator.js`.
+- Testing: Propose one logical change at a time.
+- Debugging: Analyze browser console, then Google Cloud logs.
+
+SECTION 9: RELATED DOCS
+- docs/context.txt (This file)
+- functions/templates/SOW.html
+- functions/templates/MSA.html
+- functions/templates/SLA.html
+- functions/templates/DPA.html
+- functions/templates/style.css
+- functions/.puppeteerrc.cjs (NEW: Puppeteer cache config)
+- old_project/quote-hub/public/quoteCalculator.js (Reference for advanced logic)
+- old_project/quote-hub/functions/main.py (Reference for *deprecated* logic)

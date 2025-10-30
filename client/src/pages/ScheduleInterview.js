@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
-import { InlineWidget } from 'react-calendly';
+import { useLocation } from 'react-router-dom';
+import Cal from "@calcom/embed-react";
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { SparklesIcon } from '@heroicons/react/24/solid';
 
 export default function ScheduleInterview() {
-  const [calendlyUrl, setCalendlyUrl] = useState('');
+  const [calComUrl, setCalComUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const location = useLocation();
   const { questionnaireOwnerId } = location.state || {};
 
   useEffect(() => {
-    const fetchCalendlyUrl = async () => {
+    const fetchCalComUrl = async () => {
       if (!questionnaireOwnerId) {
         console.error("Owner ID not provided");
         setLoading(false);
@@ -23,7 +23,7 @@ export default function ScheduleInterview() {
         const userProfileDoc = await getDoc(doc(db, 'users', questionnaireOwnerId));
         if (userProfileDoc.exists()) {
           const userData = userProfileDoc.data();
-          setCalendlyUrl(userData.calendlyUrl);
+          setCalComUrl(userData.calComUrl); 
         } else {
           console.error("No profile found for owner");
         }
@@ -34,7 +34,7 @@ export default function ScheduleInterview() {
       }
     };
 
-    fetchCalendlyUrl();
+    fetchCalComUrl();
   }, [questionnaireOwnerId]);
 
   if (loading) {
@@ -49,9 +49,9 @@ export default function ScheduleInterview() {
         You're a great fit! Based on your answers, we'd like to invite you to schedule an interview. Please choose a time that works best for you below.
       </p>
 
-      {calendlyUrl ? (
+      {calComUrl ? (
         <div className="mt-8 w-full max-w-4xl h-[700px]">
-          <InlineWidget url={calendlyUrl} />
+          <Cal calLink={calComUrl} style={{width:"100%",height:"100%",overflow:"scroll"}} config={{layout: 'month_view'}} />
         </div>
       ) : (
         <p className="mt-8 text-red-500">The scheduling link is not available at the moment. Please check back later.</p>

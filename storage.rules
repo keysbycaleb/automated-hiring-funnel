@@ -1,12 +1,18 @@
 rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
-    // Explicitly match the path for user logos
-    match /users/{userId}/logos/{fileName} {
-      // A user can read and write their own logo files.
-      // - 'write' covers create, update, and delete operations.
-      // - 'read' covers the get operation.
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    
+    // Allow admins (any logged-in user) to read, write, and delete any files.
+    match /{allPaths=**} {
+      allow read, write, delete: if request.auth != null;
+    }
+    
+    // This rule is for our 'generateQuotePDF' function.
+    // It allows the public to *read* files inside the 'quotes/' folder.
+    // This lets a client download their PDF without being logged in.
+    match /quotes/{allPaths=**} {
+      allow read: if true;
     }
   }
 }

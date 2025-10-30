@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HomeIcon, UsersIcon, DocumentTextIcon, XMarkIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+// --- Icons Updated ---
+import { HomeIcon, XMarkIcon } from '@heroicons/react/24/outline'; // Kept these
+import { FileSearch, Settings, LogOut } from 'lucide-react'; // Added these from the library we just installed
+// ---
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useScrollDirection } from '../hooks/useScrollDirection';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 
-// --- Animation Variants ---
+// --- Animation Variants (Unchanged) ---
 const sidebarVariants = {
   expanded: {
     width: '16rem', // 256px
@@ -53,9 +56,10 @@ export default function Sidebar({ isMobileMenuOpen, onLinkClick, isReordering })
   const { profile } = useProfile();
   const navigate = useNavigate();
 
-  const projectName = profile?.companyName || 'Hiring';
+  // --- Text Updated ---
+  const projectName = profile?.companyName || 'Quote Hub'; // Was 'Hiring'
   const logoUrl = profile?.logoUrl;
-  const firstLetter = projectName ? projectName.charAt(0).toUpperCase() : 'H';
+  const firstLetter = projectName ? projectName.charAt(0).toUpperCase() : 'Q'; // Was 'H'
 
   const handleLogout = async () => {
     try {
@@ -141,16 +145,20 @@ export default function Sidebar({ isMobileMenuOpen, onLinkClick, isReordering })
             Dashboard
           </motion.span>
         </NavLink>
-        <NavLink to="/applicants" className={navLinkClasses} onClick={onLinkClick}>
-          <UsersIcon className="h-6 w-6 shrink-0" />
+        
+        {/* --- Link 1 Updated --- */}
+        <NavLink to="/quotes" className={navLinkClasses} onClick={onLinkClick}>
+          <FileSearch className="h-6 w-6 shrink-0" />
           <motion.span animate={{ opacity: isExpanded ? 1 : 0 }} className="ml-5 font-medium whitespace-nowrap">
-            Applicants
+            Quotes
           </motion.span>
         </NavLink>
-        <NavLink to="/questionnaire" className={navLinkClasses} onClick={onLinkClick}>
-          <DocumentTextIcon className="h-6 w-6 shrink-0" />
+        
+        {/* --- Link 2 Updated --- */}
+        <NavLink to="/config" className={navLinkClasses} onClick={onLinkClick}>
+          <Settings className="h-6 w-6 shrink-0" />
           <motion.span animate={{ opacity: isExpanded ? 1 : 0 }} className="ml-5 font-medium whitespace-nowrap">
-            Questionnaire
+            Product Manager
           </motion.span>
         </NavLink>
       </motion.nav>
@@ -175,7 +183,8 @@ export default function Sidebar({ isMobileMenuOpen, onLinkClick, isReordering })
           </div>
         )}
         <button onClick={handleLogout} className={navLinkClasses({isActive: false}) + ' w-full'}>
-          <ArrowRightOnRectangleIcon className="h-6 w-6 shrink-0" />
+          {/* --- Icon Updated --- */}
+          <LogOut className="h-6 w-6 shrink-0" /> 
           <motion.span animate={{ opacity: isExpanded ? 1 : 0 }} className="ml-5 font-medium whitespace-nowrap">
             Log Out
           </motion.span>
